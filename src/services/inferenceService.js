@@ -1,56 +1,41 @@
 const tf = require('@tensorflow/tfjs-node');
-const { v4: uuidv4 } = require('uuid');
+const InputError = require('../exceptions/InputError');
 
 async function predictClassification(model, image) {
     try {
-        // Cek ukuran file gambar
-        if (image.length > 1000000) {
-            return {
-                statusCode: 413,
-                body: {
-                    status: "fail",
-                    message: "Payload content length greater than maximum allowed: 1000000"
-                }
-            };
-        }
+        console.log('Received image of size:', image.length);
 
-        // Preprocessing gambar
         const tensor = tf.node
             .decodeJpeg(image)
             .resizeNearestNeighbor([224, 224])
             .expandDims()
             .toFloat();
 
-        const classes = ['Non-cancer', 'Cancer'];
+        console.log('Tensor shape:', tensor.shape);
+
+        const classes = ['Cancer', 'Non-cancer'];
+
         const prediction = model.predict(tensor);
         const score = await prediction.data();
+        const confidenceScore = Math.max(...score) * 100;
+
         const classResult = tf.argMax(prediction, 1).dataSync()[0];
         const label = classes[classResult];
 
-        // Struktur respon API
-        const response = {
-            status: "success",
-            message: "Model is predicted successfully",
-            data: {
-                id: uuidv4(),
-                result: label,
-                suggestion: label === 'Cancer' 
-                    ? "Segera periksa ke dokter!" 
-                    : "Penyakit kanker tidak terdeteksi.",
-                createdAt: new Date().toISOString()
-            }
-        };
+        let explanation, suggestion;
 
-        return { statusCode: 200, body: response };
+        if (label === 'Cancer') {
+            explanation = "This image is likely indicating cancerous features.";
+            suggestion = "Please consult a doctor for further examination.";
+        } else {
+            explanation = "This image does not indicate cancer.";
+            suggestion = "No signs of cancer detected.";
+        }
+
+        return { confidenceScore, label, explanation, suggestion };
     } catch (error) {
-        // Kesalahan prediksi
-        return {
-            statusCode: 400,
-            body: {
-                status: "fail",
-                message: "Terjadi kesalahan dalam melakukan prediksi"
-            }
-        };
+        console.error('Error in predictClassification:', error);
+        throw new InputError(`Terjadi kesalahan input: ${error.message}`);
     }
 }
 
